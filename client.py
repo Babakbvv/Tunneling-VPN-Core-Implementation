@@ -56,3 +56,31 @@ def receive_framed_packet(sock):
     if not encrypted_payload:
         return None
     return cipher.decrypt(encrypted_payload)
+
+
+
+
+def server_to_tun(tun_fd, sock):
+    while True:
+        try:
+            decrypted_packet = receive_framed_packet(sock)
+            if decrypted_packet:
+                os.write(tun_fd, decrypted_packet)
+            else:
+                print("[-] Server disconnected.")
+                break
+        except Exception as e:
+            print(f"[-] Error in server_to_tun: {e}")
+            break
+
+
+
+def tun_to_server(tun_fd, sock):
+    while True:
+        try:
+            raw_packet = os.read(tun_fd, 2048)
+            if raw_packet:
+                send_framed_packet(sock, raw_packet)
+        except Exception as e:
+            print(f"[-] Error in tun_to_server: {e}")
+            break
