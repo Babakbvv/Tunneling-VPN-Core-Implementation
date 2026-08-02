@@ -84,3 +84,30 @@ def tun_to_server(tun_fd, sock):
         except Exception as e:
             print(f"[-] Error in tun_to_server: {e}")
             break
+
+
+
+def main():
+    tun_fd = create_tun_interface("tun0")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print(f"[*] Connecting to VPN Server at {SERVER_IP}:{SERVER_PORT}...")
+    
+    try:
+        sock.connect((SERVER_IP, SERVER_PORT))
+        print("[+] Connected to VPN Server!")
+    except Exception as e:
+        print(f"[-] Connection failed: {e}")
+        print("[!] Tip: Make sure the server is running or test TCP connection.")
+        return
+
+    t1 = threading.Thread(target=tun_to_server, args=(tun_fd, sock), daemon=True)
+    t2 = threading.Thread(target=server_to_tun, args=(tun_fd, sock), daemon=True)
+
+    t1.start()
+    t2.start()
+
+    t1.join()
+    t2.join()
+
+if __name__ == "__main__":
+    main()        
