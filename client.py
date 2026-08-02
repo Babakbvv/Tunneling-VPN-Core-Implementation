@@ -27,3 +27,32 @@ def create_tun_interface(dev_name="tun0"):
 
 
 
+def send_framed_packet(sock, payload):
+    encrypted_payload = cipher.encrypt(payload)
+    length_prefix = struct.pack("!I", len(encrypted_payload))
+    sock.sendall(length_prefix + encrypted_payload)
+
+
+
+def recv_exact(sock, n_bytes):
+    data = b""
+    while len(data) < n_bytes:
+        packet = sock.recv(n_bytes - len(data))
+        if not packet:
+            return None
+        data += packet
+    return data
+
+
+
+
+
+def receive_framed_packet(sock):
+    header = recv_exact(sock, 4)
+    if not header:
+        return None
+    packet_len = struct.unpack("!I", header)[0]
+    encrypted_payload = recv_exact(sock, packet_len)
+    if not encrypted_payload:
+        return None
+    return cipher.decrypt(encrypted_payload)
