@@ -68,3 +68,85 @@ def Maping_Nat_log(packet, client_addr):
                 port_mapping_table[mapping_key] = client_addr
                 proto_name = "TCP" if protocol == 6 else "UDP"
                 print(f"[NAT LOG] {proto_name} | Client {client_addr} -> {src_ip}:{src_port} to {dst_ip}:{dst_port}")
+
+
+
+
+def handle_client(client_sock, client_addr, tun_fd):
+    print(f"[+] Client connected from {client_addr}")
+    client_virtual_ip = None
+    
+    try:
+        while True:
+            packet = receive_framed_packet(client_sock)
+            if not packet:
+                break
+            
+            src_ip_bytes = packet[12:16]
+            if client_virtual_ip is None:
+                client_virtual_ip = src_ip_bytes
+                with clients_lock:
+                    active_clients[client_virtual_ip] = client_sock
+                    print(f"[i] Registered Virtual IP {socket.inet_ntoa(client_virtual_ip)} for {client_addr}")
+                    print(f"[i] Active Clients Count: {len(active_clients)}")
+            
+            Maping_Nat_log(packet, client_addr)
+            
+            os.write(tun_fd, packet)
+            
+    except Exception as e:
+        print(f"[-] Client error {client_addr}: {e}")
+    finally:
+        with clients_lock:
+            if client_virtual_ip and client_virtual_ip in active_clients:
+                del active_clients[client_virtual_ip]
+        print(f"[-] Client disconnected: {client_addr}")
+        print(f"[i] Active Clients Count: {len(active_clients)}")
+        client_sock.close()
+
+
+
+
+def tun_to_clients(tun_fd):
+    while True:
+        try:
+            packet = os.read(tun_fd, 2048)
+            if len(packet) >= 20:
+                dst_ip_bytes = packet[16:20] 
+                
+                with clients_lock:
+                    target_sock = active_clients.get(dst_ip_bytes)
+                
+                if target_sock:
+                    send_framed_packet(target_sock, packet)
+        except Exception as e:
+            print(f"[-] Error routing from TUN: {e}")
+
+
+
+
+
+def main():
+    tun_fd = create_tun_interface("tun0")
+    
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind((SERVER_IP, SERVER_PORT))
+    server_sock.listen(10)
+    print(f"[*] VPN Server listening on {SERVER_IP}:{SERVER_PORT}")
+    
+    threading.Thread(target=tun_to_clients, args=(tun_fd,), daemon=True).start()
+    
+    try:
+        while True:
+            client_sock, client_addr = server_sock.accept()
+            threading.Thread(target=handle_client, args=(client_sock, client_addr, tun_fd), daemon=True).start()
+    except KeyboardInterrupt:
+        print("\n[*] Shutting down server...")
+    finally:
+        server_sock.close()
+
+if __name__ == "__main__":
+    main()            
+
+    
