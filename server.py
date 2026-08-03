@@ -82,7 +82,15 @@ def handle_client(client_sock, client_addr, tun_fd):
             if not packet:
                 break
             
+            # بررسی حداقل طول یک بسته IPv4 استاندارد
+            if len(packet) < 20:
+                continue
+
             src_ip_bytes = packet[12:16]
+            # نادیده گرفتن بسته‌هایی با آی‌پی مبدا 0.0.0.0
+            if src_ip_bytes == b'\x00\x00\x00\x00':
+                continue
+
             if client_virtual_ip is None:
                 client_virtual_ip = src_ip_bytes
                 with clients_lock:
@@ -92,8 +100,12 @@ def handle_client(client_sock, client_addr, tun_fd):
             
             Maping_Nat_log(packet, client_addr)
             
-            os.write(tun_fd, packet)
-            
+            try:
+                os.write(tun_fd, packet)
+            except OSError as e:
+                # جلوگیری از بسته شدن سوکت موقع I/O Error جزئی
+                pass
+
     except Exception as e:
         print(f"[-] Client error {client_addr}: {e}")
     finally:
