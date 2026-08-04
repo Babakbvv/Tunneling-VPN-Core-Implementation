@@ -1,6 +1,9 @@
+import sys
+import io
 import sqlite3
 import hashlib
-import os
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 DB_NAME = "vpn_system.db"
 
@@ -8,20 +11,21 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
+    # اضافه شدن فیلد speed_limit_kbps (پیش‌فرض 512 KB/s)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
-            total_quota_bytes INTEGER DEFAULT 2147483648, 
+            total_quota_bytes INTEGER DEFAULT 2147483648,
             used_bytes INTEGER DEFAULT 0,
             download_bytes INTEGER DEFAULT 0,
-            upload_bytes INTEGER DEFAULT 0
+            upload_bytes INTEGER DEFAULT 0,
+            speed_limit_kbps INTEGER DEFAULT 512
         )
     ''')
     
-
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS active_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,24 +39,35 @@ def init_db():
     conn.commit()
     conn.close()
 
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def add_user(username, password, quota_gb=2):
+def add_user(username, password, quota_gb=2, speed_limit_kbps=512):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    quota_bytes = quota_gb * 1024 * 1024 * 1024
+    quota_bytes = int(quota_gb * 1024 * 1024 * 1024)
     try:
         cursor.execute(
-            "INSERT INTO users (username, password_hash, total_quota_bytes) VALUES (?, ?, ?)",
-            (username, hash_password(password), quota_bytes)
+            "INSERT INTO users (username, password_hash, total_quota_bytes, speed_limit_kbps) VALUES (?, ?, ?, ?)",
+            (username, hash_password(password), quota_bytes, speed_limit_kbps)
         )
         conn.commit()
-        print(f"[+] User '{username}' created successfully with {quota_gb} GB quota.")
+        print(f"[+] User '{username}' created with {quota_gb} GB quota and {speed_limit_kbps} KB/s speed limit.")
     except sqlite3.IntegrityError:
         print(f"[-] User '{username}' already exists.")
     finally:
         conn.close()
+
+def get_user_speed_limit(username):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT speed_limit_kbps FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row and row[0]:
+        # تبدیل KB/s به Bytes/s
+        return row[0] * 1024
+    return 512 * 1024  # مقدار پیش‌فرض اگر پیدا نشد
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def authenticate_user(username, password):
     conn = sqlite3.connect(DB_NAME)

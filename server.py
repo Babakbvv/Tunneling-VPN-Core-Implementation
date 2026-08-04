@@ -3,6 +3,7 @@ import fcntl
 import struct
 import socket
 import threading
+import time
 from cryptography.fernet import Fernet
 import database  # اتصال به فایل database.py
 
@@ -84,15 +85,26 @@ def handle_client(client_sock, client_addr, tun_fd):
         send_msg(client_sock, MSG_AUTH_OK, b"OK")
         authenticated_user = username
 
+        # دریافت محدودیت سرعت اختصاصی این کاربر از دیتابیس (بر حسب بایت بر ثانیه)
+        user_max_bytes_per_sec = database.get_user_speed_limit(authenticated_user)
+
         # ۳. دریافت بسته‌های داده شبکه
         while True:
+            # بررسی سهمیه پیش از پردازش بسته جدید
+            has_quota, status_msg = database.check_user_quota(authenticated_user)
+            if not has_quota:
+                print(f"[!] Disconnecting user '{authenticated_user}': {status_msg}")
+                send_msg(client_sock, MSG_AUTH_FAIL, status_msg.encode('utf-8'))
+                break
+
             msg_type, payload = recv_msg(client_sock)
             if msg_type is None:
                 break
                 
             if msg_type == MSG_DATA and payload:
                 packet = cipher.decrypt(payload)
-                if len(packet) < 20: 
+                pkt_len = len(packet)
+                if pkt_len < 20: 
                     continue
                 
                 src_ip_bytes = packet[12:16]
@@ -105,8 +117,13 @@ def handle_client(client_sock, client_addr, tun_fd):
                         active_clients[client_virtual_ip] = client_sock
                     print(f"[i] Registered Virtual IP {socket.inet_ntoa(client_virtual_ip)} for '{username}'")
 
-                # ثبت آمار حجم مصرفی کلاینت در دیتابیس (Upload)
-                database.update_usage(authenticated_user, upload_add=len(packet))
+                # ⏱️ محدودسازی سرعت بر اساس فیلد اختصاصی این کاربر در دیتابیس
+                if user_max_bytes_per_sec > 0:
+                    sleep_time = pkt_len / user_max_bytes_per_sec
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+
+                database.update_usage(authenticated_user, upload_add=pkt_len)
 
                 try:
                     os.write(tun_fd, packet)
