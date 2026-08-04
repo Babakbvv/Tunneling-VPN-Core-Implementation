@@ -1,9 +1,5 @@
-import sys
-import io
 import sqlite3
 import hashlib
-
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 DB_NAME = "vpn_system.db"
 
@@ -27,12 +23,15 @@ def init_db():
     ''')
     
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS active_sessions (
+        CREATE TABLE IF NOT EXISTS traffic_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
             client_ip TEXT NOT NULL,
-            virtual_ip TEXT NOT NULL,
-            connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            dest_ip TEXT NOT NULL,
+            dest_port INTEGER,
+            domain_name TEXT,
+            protocol TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -113,3 +112,36 @@ def update_usage(username, upload_add=0, download_add=0):
 if __name__ == "__main__":
     init_db()
     add_user("ali", "123456", quota_gb=2)
+
+
+
+def log_traffic(username, client_ip, dest_ip, dest_port, domain_name, protocol):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO traffic_logs (username, client_ip, dest_ip, dest_port, domain_name, protocol)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (username, str(client_ip), dest_ip, dest_port, domain_name, protocol))
+    conn.commit()
+    conn.close()   
+
+def check_user_quota(username):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT total_quota_bytes, used_bytes, is_active FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row or row[2] == 0:
+        return False, "Account disabled or exhausted"
+    if row[1] >= row[0]:
+        set_user_status(username, 0)
+        return False, "Quota exhausted"
+    return True, "OK"
+
+def set_user_status(username, is_active=1):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET is_active = ? WHERE username = ?", (username, is_active))
+    conn.commit()
+    conn.close()     

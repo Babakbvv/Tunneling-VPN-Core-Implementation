@@ -17,7 +17,7 @@ MSG_AUTH_REQ = 1
 MSG_AUTH_OK = 2
 MSG_AUTH_FAIL = 3
 MSG_DATA = 4
-dns_cache = {} 
+
 clients_lock = threading.Lock()
 active_clients = {}      # mapping: virtual_ip_bytes -> client_sock
 port_mapping_table = {}  # NAT Logging Table
@@ -77,61 +77,6 @@ def Maping_Nat_log(packet, client_addr):
                 port_mapping_table[mapping_key] = client_addr
                 proto_name = "TCP" if protocol == 6 else "UDP"
                 print(f"[NAT LOG] {proto_name} | Client {client_addr} -> {src_ip}:{src_port} to {dst_ip}:{dst_port}")
-
-
-
-def parse_dns_domain(data):
-    try:
-        idx = 12  
-        domain_parts = []
-        while idx < len(data):
-            length = data[idx]
-            if length == 0:
-                break
-            idx += 1
-            domain_parts.append(data[idx:idx+length].decode('utf-8', errors='ignore'))
-            idx += length
-        return ".".join(domain_parts) if domain_parts else "-"
-    except Exception:
-        return "-"
-
-
-
-def tun_to_clients(tun_fd):
-    while True:
-        try:
-            packet = os.read(tun_fd, 2048)
-            if len(packet) >= 20:
-                dst_ip_bytes = packet[16:20]
-                
-                with clients_lock:
-                    target_info = active_clients.get(dst_ip_bytes)
-                
-                if target_info:
-                    # ثبت حجم دانلود (Download Accounting)
-                    database.update_usage(target_info["username"], download_add=len(packet))
-                    
-                    encrypted_payload = cipher.encrypt(packet)
-                    send_msg(target_info["sock"], MSG_DATA, encrypted_payload)
-        except Exception as e:
-            pass
-
-
-def kick_user_by_username(username):
-    """قطع اتصال اجباری کاربر (Client Disconnection) از طریق پنل وب"""
-    with clients_lock:
-        vips_to_remove = []
-        for vip, info in active_clients.items():
-            if info["username"] == username:
-                try:
-                    info["sock"].close()
-                except Exception:
-                    pass
-                vips_to_remove.append(vip)
-        for vip in vips_to_remove:
-            del active_clients[vip]
-    print(f"[!] Forcefully kicked user '{username}' from Admin Panel.")
-
 
 def handle_client(client_sock, client_addr, tun_fd):
     print(f"[+] Client connected from {client_addr}")
