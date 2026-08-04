@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block title %}مدیریت کاربران - VPN Panel{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="m-0">👥 لیست و مدیریت کاربران</h3>
+</div>
+
+<div class="row">
+    <!-- جدول تمام‌صفحه لیست کاربران -->
+    <div class="col-12 mb-4">
+        <div class="card p-3">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>نام کاربر</th>
+                            <th>وضعیت حساب</th>
+                            <th>حجم مصرفی / کل</th>
+                            <th>محدودیت سرعت</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td><strong><code>{{ u.username }}</code></strong></td>
+                            <td>
+                                {% if u.is_active %}
+                                    <span class="badge bg-success fs-6">فعال</span>
+                                {% else %}
+                                    <span class="badge bg-danger fs-6">مسدود</span>
+                                {% endif %}
+                            </td>
+                            <td style="min-width: 160px;">
+                                <small class="fw-bold">{{ u.used_bytes|format_bytes }}</small> 
+                                <small class="text-muted">از {{ u.total_quota_bytes|format_bytes }}</small>
+                                <div class="progress mt-1" style="height: 6px;">
+                                    <div class="progress-bar {% if u.percent > 85 %}bg-danger{% else %}bg-info{% endif %}" 
+                                         role="progressbar" style="width: {{ u.percent }}%;"></div>
+                                </div>
+                                <small class="text-muted d-block mt-1" style="font-size: 0.75rem;">
+                                    ⬇️ {{ u.download_bytes|format_bytes }} | ⬆️ {{ u.upload_bytes|format_bytes }}
+                                </small>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary fs-6">{{ u.speed_limit_kbps }} Kbps</span>
+                            </td>
+                            <td>
+                                <!-- دکمه باز کردن پنجره ویرایش -->
+                                <button type="button" class="btn btn-sm btn-outline-primary px-3" 
+                                        data-bs-toggle="modal" data-bs-target="#editModal{{ loop.index }}">
+                                    ✏️ ویرایش تنظیمات
+                                </button>
+
+                                <!-- پنجره پاپ‌آپ ویرایش کاربر (Modal) -->
+                                <div class="modal fade" id="editModal{{ loop.index }}" tabindex="-1">
+                                    <div class="modal-dialog modal-dialog-centered">
+                                        <div class="modal-content text-end">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">ویرایش کاربر: {{ u.username }}</h5>
+                                                <button type="button" class="btn-close ms-0 me-auto" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <form action="/update_user" method="POST">
+                                                <div class="modal-body">
+                                                    <input type="hidden" name="username" value="{{ u.username }}">
+                                                    
+                                                    <!-- وضعیت حساب (فعال / مسدود) -->
+                                                    <div class="mb-3">
+                                                        <label class="form-label">وضعیت حساب:</label>
+                                                        <select name="is_active" class="form-select">
+                                                            <option value="1" {% if u.is_active == 1 %}selected{% endif %}>🟢 فعال</option>
+                                                            <option value="0" {% if u.is_active == 0 %}selected{% endif %}>🔴 مسدود (غیرفعال)</option>
+                                                        </select>
+                                                    </div>
+
+                                                    <!-- حجم مجاز -->
+                                                    <div class="mb-3">
+                                                        <label class="form-label">حجم مجاز کل (گیگابایت):</label>
+                                                        <input type="number" step="0.5" name="quota_gb" value="{{ u.quota_gb }}" class="form-control" required>
+                                                    </div>
+
+                                                    <!-- محدودیت سرعت -->
+                                                    <div class="mb-3">
+                                                        <label class="form-label">محدودیت سرعت (Kbps):</label>
+                                                        <input type="number" name="speed_limit_kbps" value="{{ u.speed_limit_kbps }}" class="form-control" required>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                                                    <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-muted py-4">هیچ کاربری در دیتابیس یافت نشد.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
