@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+
+{% block title %}رصد مقاصد ترافیکی - VPN Panel{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="m-0">🔍 رصد مقاصد ترافیکی شبکه (Traffic Logs)</h3>
+    <a href="/traffic-logs" class="btn btn-outline-secondary btn-sm">🔄 به‌روزرسانی جدول</a>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover align-middle text-center">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>#</th>
+                            <th>نام کاربر</th>
+                            <th>IP کلاینت</th>
+                            <th>IP مقصد</th>
+                            <th>پورت مقصد</th>
+                            <th>نام دامنه (Domain Name)</th>
+                            <th>پروتکل</th>
+                            <th>زمان ثبت (Timestamp)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr>
+                            <td><small class="text-muted">{{ loop.index }}</small></td>
+                            <td><span class="badge bg-primary px-2 py-1"><code>{{ log.username }}</code></span></td>
+                            <td><small class="text-muted">{{ log.client_ip }}</small></td>
+                            <td><code>{{ log.dest_ip }}</code></td>
+                            <td><span class="badge bg-light text-dark border">{{ log.dest_port }}</span></td>
+                            <td>
+                                {% if log.domain_name and log.domain_name != 'N/A' %}
+                                    <strong class="text-info">{{ log.domain_name }}</strong>
+                                {% else %}
+                                    <span class="text-muted small">مشخص‌نشده (Direct IP)</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-secondary">{{ log.protocol }}</span></td>
+                            <td><small dir="ltr" class="text-muted">{{ log.timestamp }}</small></td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-muted py-4">هنوز هیچ لاگ ترافیکی در دیتابیس ثبت نشده است.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

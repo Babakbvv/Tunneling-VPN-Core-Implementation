@@ -6,7 +6,9 @@ app = Flask(__name__)
 app.secret_key = 'super_secret_key'
 
 def format_bytes(size_bytes):
-    if not size_bytes: return "0 B"
+    """فیلتر تبدیل بایت به واحدهای قابل خواندن (KB, MB, GB و ...)"""
+    if not size_bytes: 
+        return "0 B"
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if size_bytes < 1024.0:
             return f"{size_bytes:.2f} {unit}"
@@ -15,12 +17,18 @@ def format_bytes(size_bytes):
 
 app.jinja_env.filters['format_bytes'] = format_bytes
 
+# ---------------------------------------------------------
+# روت‌های اصلی پنل
+# ---------------------------------------------------------
+
 @app.route('/')
 def index():
+    """هدایت صفحه اصلی به مدیریت کاربران"""
     return redirect(url_for('users_page'))
 
 @app.route('/users')
 def users_page():
+    """صفحه لیست و مدیریت کاربران"""
     database.init_db()
 
     conn = sqlite3.connect(database.DB_NAME)
@@ -50,11 +58,11 @@ def users_page():
 
 @app.route('/update_user', methods=['POST'])
 def update_user():
-    """ثبت تغییرات حجم، سرعت و وضعیت فعال/مسدود بودن کاربر"""
+    """تغییر وضعیت، حجم و سرعت کاربر"""
     username = request.form.get('username')
     quota_gb = float(request.form.get('quota_gb'))
     speed_kbps = int(request.form.get('speed_limit_kbps'))
-    is_active = int(request.form.get('is_active'))  # دریافت وضعیت جدید (0 یا 1)
+    is_active = int(request.form.get('is_active'))
     
     total_quota_bytes = int(quota_gb * 1024 * 1024 * 1024)
     
@@ -71,6 +79,40 @@ def update_user():
     flash(f"اطلاعات کاربر '{username}' با موفقیت به روز شد.", "success")
     return redirect(url_for('users_page'))
 
+@app.route('/traffic-logs')
+def traffic_logs_page():
+    """صفحه اختصاصی رصد مقاصد ترافیکی شبکه (خوانش از جدول traffic_logs)"""
+    database.init_db()
+    
+    conn = sqlite3.connect(database.DB_NAME)
+    cursor = conn.cursor()
+    
+    # دریافت ۱۰۰ لاگ جدید ترافیک خروجی کاربران
+    cursor.execute("""
+        SELECT username, client_ip, dest_ip, dest_port, domain_name, protocol, timestamp 
+        FROM traffic_logs 
+        ORDER BY id DESC LIMIT 100
+    """)
+    logs_raw = cursor.fetchall()
+    conn.close()
+    
+    logs = []
+    for l in logs_raw:
+        logs.append({
+            'username': l[0],
+            'client_ip': l[1],
+            'dest_ip': l[2],
+            'dest_port': l[3],
+            'domain_name': l[4] if l[4] else "N/A",
+            'protocol': l[5] if l[5] else "TCP/UDP",
+            'timestamp': l[6]
+        })
+    
+    return render_template('traffic_logs.html', logs=logs, active_page='traffic_logs')
+
+# ---------------------------------------------------------
+# اجرای پروسس فلاسک
+# ---------------------------------------------------------
 if __name__ == '__main__':
     database.init_db()
     app.run(host='0.0.0.0', port=5000, debug=True)

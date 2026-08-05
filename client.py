@@ -57,17 +57,15 @@ def authenticate(sock):
     username = input("Username: ")
     password = input("Password: ")
     
-    # بسته‌بندی نام‌کاربری و رمز عبور
     auth_data = f"{username}:{password}".encode('utf-8')
     encrypted_auth = cipher.encrypt(auth_data)
     
-    # ارسال درخواست ورود به سرور
     send_msg(sock, MSG_AUTH_REQ, encrypted_auth)
     
-    # دریافت پاسخ از سرور
     msg_type, payload = recv_msg(sock)
     if msg_type == MSG_AUTH_OK:
-        print("[+] Authentication Successful! Welcome.")
+        assigned_vip = payload.decode('utf-8')
+        print(f"[+] Authentication Successful! Assigned Virtual IP: {assigned_vip}")
         return True
     else:
         reason = payload.decode('utf-8') if payload else "Unknown error"
@@ -95,8 +93,8 @@ def tun_to_server(tun_fd, sock):
         try:
             raw_packet = os.read(tun_fd, 2048)
             if raw_packet:
+                print(f"[DEBUG CLIENT] Read {len(raw_packet)} bytes from TUN, sending to server...")
                 encrypted_payload = cipher.encrypt(raw_packet)
-                # ارسال بسته داده با تگ MSG_DATA
                 send_msg(sock, MSG_DATA, encrypted_payload)
         except Exception as e:
             print(f"[-] Error in tun_to_server: {e}")

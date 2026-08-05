@@ -109,10 +109,6 @@ def update_usage(username, upload_add=0, download_add=0):
     conn.commit()
     conn.close()
 
-if __name__ == "__main__":
-    init_db()
-    add_user("ali", "123456", quota_gb=2)
-
 
 
 def log_traffic(username, client_ip, dest_ip, dest_port, domain_name, protocol):
@@ -145,3 +141,10 @@ def set_user_status(username, is_active=1):
     cursor.execute("UPDATE users SET is_active = ? WHERE username = ?", (username, is_active))
     conn.commit()
     conn.close()     
+
+if __name__ == "__main__":
+    init_db()
+    add_user("ali", "123456", quota_gb=2)پ
+
+    
+

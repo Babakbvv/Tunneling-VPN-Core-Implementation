@@ -5,6 +5,8 @@ import socket
 import threading
 import time
 from cryptography.fernet import Fernet
+from dns import message as dns_message
+
 import database  # ماژول دیتابیس
 
 SERVER_IP = "0.0.0.0"
@@ -55,45 +57,92 @@ def recv_msg(sock):
     payload = recv_exact(sock, payload_len)
     return msg_type, payload
 
-def Maping_Nat_log(packet, client_addr):
-    """استخراج هدر IP/TCP/UDP و ثبت لاگ جدول NAT"""
+
+def parse_dns_domain(dns_payload):
+    try:
+        # تبدیل بایت‌های خام به شیء قابل فهم DNS
+        msg = dns_message.from_wire(dns_payload)
+        if msg.question:
+            # گرفتن اولین سوال مطرح شده در بسته DNS (نام دامنه)
+            domain = msg.question[0].name.to_text().rstrip('.')
+            return domain
+    except Exception:
+        pass
+    return "-"
+
+
+
+
+def get_domain_from_ip(ip_str):
+    """گرفتن آدرس IP و تحویل دادن اسم دامنه به سادگی"""
+    try:
+        # تنظیم یک تایم‌اوت کوتاه (مثلا نیم ثانیه) که سرور معطل نشه
+        socket.setdefaulttimeout(0.5)
+        # استعلام مستقیم اسم دامنه از روی IP
+        domain_name, _, _ = socket.gethostbyaddr(ip_str)
+        return domain_name
+    except Exception:
+        # اگر دامنه‌ای برای آن IP پیدا نشد
+        return "-"
+
+
+def Maping_Nat_log(packet, client_addr, username):
+    """استخراج هدر IP و تمام پروتکل‌ها (TCP/UDP/ICMP) و ثبت لاگ"""
     if len(packet) < 20:
         return
     
-    version = packet[0]
-    ihl = (version & 0xF) * 4 
-    protocol = packet[9]           
+    version_ihl = packet[0]
+    ihl = (version_ihl & 0xF) * 4  # طول هدر IP
+    protocol = packet[9]           # کد پروتکل
     
     src_ip = socket.inet_ntoa(packet[12:16])
     dst_ip = socket.inet_ntoa(packet[16:20])
     
-    if protocol == 6 or protocol == 17: # TCP یا UDP
-        if len(packet) >= ihl + 4:
-            src_port = struct.unpack("!H", packet[ihl:ihl+2])[0]
-            dst_port = struct.unpack("!H", packet[ihl+2:ihl+4])[0]
-            
-            mapping_key = (src_ip, src_port, dst_ip, dst_port)
-            if mapping_key not in port_mapping_table:
-                port_mapping_table[mapping_key] = client_addr
-                proto_name = "TCP" if protocol == 6 else "UDP"
-                print(f"[NAT LOG] {proto_name} | Client {client_addr} -> {src_ip}:{src_port} to {dst_ip}:{dst_port}")
+    # تشخیص نوع پروتکل و استخراج پورت/اطلاعات
+    src_port = 0
+    dst_port = 0
+    domain_name = "-"
 
+    if protocol == 6:
+        proto_name = "TCP"
+    elif protocol == 17:
+        proto_name = "UDP"
+    elif protocol == 1:
+        proto_name = "ICMP"
+    else:
+        proto_name = f"PROTO_{protocol}"
 
+    # ۱. پردازش پورت‌ها برای TCP و UDP
+    if protocol in (6, 17) and len(packet) >= ihl + 4:
+        src_port = struct.unpack("!H", packet[ihl:ihl+2])[0]
+        dst_port = struct.unpack("!H", packet[ihl+2:ihl+4])[0]
+        
+        # استخراج دامنه در صورت وجود درخواست DNS روی پورت 53 UDP
+        if protocol == 17 and dst_port == 53 and len(packet) > ihl + 8:
+            udp_payload = packet[ihl+8:]
+            domain_name = parse_dns_domain(udp_payload)
 
-def parse_dns_domain(data):
+    # ۲. پردازش ICMP (مثل Ping)
+    elif protocol == 1 and len(packet) >= ihl + 2:
+        icmp_type = packet[ihl]
+        icmp_code = packet[ihl+1]
+        dst_port = icmp_type  # ذخیره Type پکت پینگ به جای پورت
+        domain_name = f"ICMP Type:{icmp_type} Code:{icmp_code}"
+
+    # ثبت در دیتابیس
     try:
-        idx = 12  
-        domain_parts = []
-        while idx < len(data):
-            length = data[idx]
-            if length == 0:
-                break
-            idx += 1
-            domain_parts.append(data[idx:idx+length].decode('utf-8', errors='ignore'))
-            idx += length
-        return ".".join(domain_parts) if domain_parts else "-"
-    except Exception:
-        return "-"
+        database.log_traffic(username, src_ip, dst_ip, dst_port, domain_name, proto_name)
+    except Exception as e:
+        print(f"[-] Database Logging Error: {e}")
+
+    # ثبت در جدول NAT حافظه سرور
+    mapping_key = (src_ip, src_port, dst_ip, dst_port, proto_name)
+    if mapping_key not in port_mapping_table:
+        port_mapping_table[mapping_key] = client_addr
+        print(f"[NAT LOG] {proto_name} | Client: {username} ({client_addr}) | {src_ip}:{src_port} -> {dst_ip}:{dst_port} | Info: {domain_name}")
+
+
+
 
 
 
@@ -113,8 +162,11 @@ def tun_to_clients(tun_fd):
                     
                     encrypted_payload = cipher.encrypt(packet)
                     send_msg(target_info["sock"], MSG_DATA, encrypted_payload)
+                else:
+                    print(f"unkonkn :{list(dst_ip_bytes)}")
         except Exception as e:
-            pass
+            
+            print("ip route wrong")
 
 
 def kick_user_by_username(username):
@@ -158,7 +210,23 @@ def handle_client(client_sock, client_addr, tun_fd):
             return
             
         print(f"[+] User '{username}' authenticated successfully!")
-        send_msg(client_sock, MSG_AUTH_OK, b"OK")
+        
+        # اختصاص آدرس آی‌پی مجازی ثابت/پویا به کلاینت (مثلاً 10.8.0.2)
+        assigned_vip_str = "10.8.0.2" 
+        client_virtual_ip = socket.inet_aton(assigned_vip_str)
+
+        with clients_lock:
+            # ذخیره سوکت و نام‌کاربری با کلید IP مجازی (بایت)
+            active_clients[client_virtual_ip] = {
+                "sock": client_sock,
+                "username": username
+            }
+        
+        print(f"[i] Registered Virtual IP {assigned_vip_str} for '{username}' ({client_addr})")
+        print(f"[i] Active Clients Count: {len(active_clients)}")
+
+        # ارسال تایید ورود به همراه آی‌پی مجازی اختصاص یافته به کلاینت
+        send_msg(client_sock, MSG_AUTH_OK, assigned_vip_str.encode('utf-8'))
         authenticated_user = username
 
         # دریافت محدودیت سرعت اختصاصی این کاربر از دیتابیس
@@ -179,6 +247,7 @@ def handle_client(client_sock, client_addr, tun_fd):
                 
             if msg_type == MSG_DATA and payload:
                 packet = cipher.decrypt(payload)
+              #  print(f"[DEBUG SERVER] Received packet with len {len(packet)} from client!")
                 pkt_len = len(packet)
                 if pkt_len < 20: 
                     continue
@@ -196,7 +265,7 @@ def handle_client(client_sock, client_addr, tun_fd):
                     print(f"[i] Active Clients Count: {len(active_clients)}")
 
                 # ثبت لاگ NAT
-                Maping_Nat_log(packet, client_addr)
+
 
                 # اعمال محدودیت سرعت اختصاصی کاربر
                 if user_max_bytes_per_sec > 0:
@@ -208,6 +277,7 @@ def handle_client(client_sock, client_addr, tun_fd):
                 database.update_usage(authenticated_user, upload_add=pkt_len)
 
                 try:
+                    Maping_Nat_log(packet, client_addr ,username)
                     os.write(tun_fd, packet)
                 except OSError:
                     pass
@@ -222,23 +292,7 @@ def handle_client(client_sock, client_addr, tun_fd):
         print(f"[i] Active Clients Count: {len(active_clients)}")
         client_sock.close()
 
-def tun_to_clients(tun_fd):
-    """خوانش پاسخ‌ها از tun0 و هدایت آن‌ها به سوکت کلاینت مربوطه"""
-    while True:
-        try:
-            packet = os.read(tun_fd, 2048)
-            if len(packet) >= 20:
-                dst_ip_bytes = packet[16:20] # IP مقصد از هدر پکت
-                
-                with clients_lock:
-                    target_sock = active_clients.get(dst_ip_bytes)
-                
-                if target_sock:
-                    # ارسال پکت داده بازگشتی با تگ MSG_DATA و رمزنگاری
-                    encrypted_payload = cipher.encrypt(packet)
-                    send_msg(target_sock, MSG_DATA, encrypted_payload)
-        except Exception as e:
-            print(f"[-] Error routing from TUN: {e}")
+
 
 def main():
     database.init_db()
