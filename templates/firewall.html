@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}مدیریت فایروال - پنل مدیریت VPN{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="fw-bold">🔥 مدیریت قوانین فایروال و کنترل دسترسی</h3>
+</div>
+
+<!-- فرم افزودن قانون جدید -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white font-weight-bold">
+        ➕ افزودن قانون فایروال جدید
+    </div>
+    <div class="card-body">
+        <form action="/firewall/add" method="POST" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">کاربر (Target User)</label>
+                <input type="text" name="target_user" class="form-control" value="ALL" placeholder="مثلاً ALL یا amir" required>
+                <small class="text-muted">برای همه کاربران کلمه ALL را بگذارید</small>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">IP مقصد (Destination IP)</label>
+                <input type="text" name="dst_ip" class="form-control" placeholder="مثلاً 8.8.8.8 یا 142.250.185.206" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">پورت (0 = همه)</label>
+                <input type="number" name="dst_port" class="form-control" value="0" min="0" max="65535" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">نوع اقدام (Action)</label>
+                <select name="action" class="form-select">
+                    <option value="BLOCK">BLOCK (مسدود)</option>
+                    <option value="ACCEPT">ACCEPT (مجاز)</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-success w-100">ثبت قانون</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- جدول قوانین فعلی -->
+<div class="card">
+    <div class="card-header bg-dark text-white font-weight-bold">
+        📋 قوانین فعال سیستم
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover m-0 text-center align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>کاربر هدف</th>
+                        <th>IP مقصد</th>
+                        <th>پورت</th>
+                        <th>وضعیت</th>
+                        <th>تاریخ ثبت</th>
+                        <th>عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rules %}
+                    <tr>
+                        <td>{{ r[0] }}</td>
+                        <td><span class="badge bg-secondary">{{ r[1] }}</span></td>
+                        <td><code>{{ r[2] }}</code></td>
+                        <td><code>{{ 'همه' if r[3] == 0 else r[3] }}</code></td>
+                        <td>
+                            {% if r[4] == 'BLOCK' %}
+                                <span class="badge bg-danger">مسدود (BLOCK)</span>
+                            {% else %}
+                                <span class="badge bg-success">مجاز (ACCEPT)</span>
+                            {% endif %}
+                        </td>
+                        <td><small dir="ltr">{{ r[5] }}</small></td>
+                        <td>
+                            <a href="/firewall/delete/{{ r[0] }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('آیا از حذف این قانون مطمئن هستید؟')">حذف</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">هیچ قانون فایروالی ثبت نشده است.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

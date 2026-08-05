@@ -266,6 +266,19 @@ def handle_client(client_sock, client_addr, tun_fd):
 
                 # ثبت لاگ NAT
 
+                ihl = (packet[0] & 0xF) * 4
+                protocol = packet[9]
+                dst_ip = socket.inet_ntoa(packet[16:20])
+                
+                dst_port = 0
+                if protocol in (6, 17) and pkt_len >= ihl + 4:
+                    dst_port = struct.unpack("!H", packet[ihl+2:ihl+4])[0]
+
+                # بررسی مسدود بودن پکت بر اساس قوانین فایروال
+                if database.is_packet_blocked(authenticated_user, dst_ip, dst_port):
+                    print(f"[🔥 FIREWALL DROPPED] User: '{authenticated_user}' -> Blocked Destination: {dst_ip}:{dst_port}")
+                    continue  # بسته Drop شد و روی کارت شبکه نوشته نمی‌شود!
+
 
                 # اعمال محدودیت سرعت اختصاصی کاربر
                 if user_max_bytes_per_sec > 0:

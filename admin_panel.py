@@ -110,6 +110,40 @@ def traffic_logs_page():
     
     return render_template('traffic_logs.html', logs=logs, active_page='traffic_logs')
 
+
+
+
+@app.route('/firewall')
+def firewall_page():
+    rules = database.get_all_firewall_rules()
+    return render_template('firewall.html', rules=rules, active_page='firewall')
+
+@app.route('/firewall/add', methods=['POST'])
+def add_firewall_rule():
+    target_user = request.form.get('target_user', 'ALL').strip()
+    dst_ip = request.form.get('dst_ip', '').strip()
+    dst_port = request.form.get('dst_port', 0)
+    action = request.form.get('action', 'BLOCK')
+
+    try:
+        dst_port = int(dst_port)
+    except ValueError:
+        dst_port = 0
+
+    if dst_ip:
+        database.add_firewall_rule(target_user, dst_ip, dst_port, action)
+        flash(f'قانون جدید برای IP {dst_ip} با موفقیت ثبت شد.', 'success')
+    else:
+        flash('لطفاً آدرس IP مقصد را به درستی وارد کنید.', 'danger')
+
+    return redirect(url_for('firewall_page'))
+
+@app.route('/firewall/delete/<int:rule_id>')
+def delete_firewall_rule(rule_id):
+    database.delete_firewall_rule(rule_id)
+    flash('قانون مورد نظر با موفقیت حذف شد.', 'info')
+    return redirect(url_for('firewall_page'))
+
 # ---------------------------------------------------------
 # اجرای پروسس فلاسک
 # ---------------------------------------------------------

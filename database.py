@@ -7,7 +7,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # اضافه شدن فیلد speed_limit_kbps (پیش‌فرض 512 KB/s)
+    # جدول کاربران
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,6 +22,7 @@ def init_db():
         )
     ''')
     
+    # جدول لاگ‌های ترافیک
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS traffic_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,6 +33,18 @@ def init_db():
             domain_name TEXT,
             protocol TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # جدول قوانین فایروال
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS firewall_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_user TEXT DEFAULT 'ALL',
+            dst_ip TEXT NOT NULL,
+            dst_port INTEGER DEFAULT 0,
+            action TEXT DEFAULT 'BLOCK',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -62,9 +75,9 @@ def get_user_speed_limit(username):
     conn.close()
     
     if row and row[0]:
-        # تبدیل KB/s به Bytes/s
-        return row[0] * 1024
-    return 512 * 1024  # مقدار پیش‌فرض اگر پیدا نشد
+        return row[0] * 1024  # تبدیل KB/s به Bytes/s
+    return 512 * 1024
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -109,8 +122,6 @@ def update_usage(username, upload_add=0, download_add=0):
     conn.commit()
     conn.close()
 
-
-
 def log_traffic(username, client_ip, dest_ip, dest_port, domain_name, protocol):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -138,13 +149,63 @@ def check_user_quota(username):
 def set_user_status(username, is_active=1):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET is_active = ? WHERE username = ?", (username, is_active))
+    # اصلاح جایگاه پارامترها در UPDATE
+    cursor.execute("UPDATE users SET is_active = ? WHERE username = ?", (is_active, username))
     conn.commit()
     conn.close()     
 
+# ==================== FIREWALL FUNCTIONS ====================
+
+def add_firewall_rule(target_user, dst_ip, dst_port, action):
+    """افزودن یک قانون فایروال جدید"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO firewall_rules (target_user, dst_ip, dst_port, action)
+        VALUES (?, ?, ?, ?)
+    ''', (target_user, dst_ip, dst_port, action))
+    conn.commit()
+    conn.close()
+
+def delete_firewall_rule(rule_id):
+    """حذف قانون فایروال با شناسه"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM firewall_rules WHERE id = ?', (rule_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_firewall_rules():
+    """دریافت تمام قوانین فایروال ثبت شده"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, target_user, dst_ip, dst_port, action, created_at 
+        FROM firewall_rules 
+        ORDER BY id DESC
+    ''')
+    rules = cursor.fetchall()
+    conn.close()
+    return rules
+
+def is_packet_blocked(username, dst_ip, dst_port):
+    """بررسی مسدود بودن پکت در هسته سرور"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT action FROM firewall_rules 
+        WHERE (target_user = ? OR target_user = 'ALL')
+          AND (dst_ip = ? OR dst_ip = '0.0.0.0')
+          AND (dst_port = ? OR dst_port = 0)
+    ''', (username, dst_ip, dst_port))
+    rules = cursor.fetchall()
+    conn.close()
+    
+    for (action,) in rules:
+        if action.upper() == 'BLOCK':
+            return True
+    return False
+
 if __name__ == "__main__":
     init_db()
-    add_user("ali", "123456", quota_gb=2)پ
-
-    
-
+    add_user("ali", "123456", quota_gb=2)
