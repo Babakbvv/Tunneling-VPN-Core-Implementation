@@ -51,6 +51,16 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS quota_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        added_quota_gb REAL NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
     
     conn.commit()
     conn.close()
@@ -247,6 +257,74 @@ def is_packet_blocked(username, dst_ip, dst_port):
         if action.upper() == 'BLOCK':
             return True
     return False
+
+
+def add_quota_to_user(username, quota_gb):
+    """افزایش حجم کاربر و ثبت تاریخچه خرید"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    additional_bytes = int(quota_gb * 1024 * 1024 * 1024)
+    
+    # ۱. افزایش حجم کل و فعال‌سازی مجدد حساب در صورت مسدود بودن
+    cursor.execute('''
+        UPDATE users 
+        SET total_quota_bytes = total_quota_bytes + ?,
+            is_active = 1
+        WHERE username = ?
+    ''', (additional_bytes, username))
+    
+    # ۲. ثبت در تاریخچه خریدها
+    cursor.execute('''
+        INSERT INTO quota_requests (username, added_quota_gb)
+        VALUES (?, ?)
+    ''', (username, quota_gb))
+    
+    conn.commit()
+    conn.close()
+
+def get_user_quota_history(username):
+    """دریافت تاریخچه شارژهای کاربر"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT added_quota_gb, timestamp 
+        FROM quota_requests 
+        WHERE username = ? 
+        ORDER BY id DESC
+    ''', (username,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def get_user_info(username):
+    """دریافت جزئیات کامل حساب کاربر به همراه تبدیل واحدها به گیگابایت"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT total_quota_bytes, used_bytes, download_bytes, upload_bytes, is_active, speed_limit_kbps
+        FROM users WHERE username = ?
+    ''', (username,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        total_bytes = row[0] if row[0] is not None else 0
+        used_bytes = row[1] if row[1] is not None else 0
+        remaining_bytes = max(0, total_bytes - used_bytes)
+        
+        # تبدیل بایت به گیگابایت در سمت پایتون
+        gb_factor = 1024 * 1024 * 1024
+        
+        return {
+            "total_quota_gb": round(total_bytes / gb_factor, 2),
+            "used_gb": round(used_bytes / gb_factor, 2),
+            "remaining_gb": round(remaining_bytes / gb_factor, 2),
+            "download_mb": round((row[2] or 0) / (1024 * 1024), 2),
+            "upload_mb": round((row[3] or 0) / (1024 * 1024), 2),
+            "is_active": bool(row[4]),
+            "speed_limit": row[5] if row[5] is not None else 512
+        }
+    return None
 
 if __name__ == "__main__":
     init_db()
