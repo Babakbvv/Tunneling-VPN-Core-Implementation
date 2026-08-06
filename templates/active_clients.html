@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}کاربران آنلاین - پنل مدیریت VPN{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="fw-bold">🟢 کاربران فعال و آنلاین</h3>
+    <a href="/active-clients" class="btn btn-outline-primary btn-sm">🔄 به‌روزرسانی لیست</a>
+</div>
+
+<div class="card">
+    <div class="card-header bg-dark text-white font-weight-bold">
+        👥 اتصالات هم‌زمان فعال (Active Sessions)
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover m-0 text-center align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>نام کاربر</th>
+                        <th>IP مجازی (VPN IP)</th>
+                        <th>آدرس واقعی (Endpoint)</th>
+                        <th>وضعیت</th>
+                        <th>عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in clients %}
+                    <tr>
+                        <td><strong>{{ c.username }}</strong></td>
+                        <td><span class="badge bg-info text-dark">{{ c.virtual_ip }}</span></td>
+                        <td><code>{{ c.client_addr }}</code></td>
+                        <td><span class="badge bg-success">متصل (Online)</span></td>
+                        <td>
+                            <a href="/kick/{{ c.username }}" 
+                               class="btn btn-sm btn-danger" 
+                               onclick="return confirm('آیا از قطع اتصال کاربر {{ c.username }} مطمئن هستید؟')">
+                                🚫 قطع اتصال (Kick)
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4 text-muted">در حال حاضر هیچ کاربری متصل نیست.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

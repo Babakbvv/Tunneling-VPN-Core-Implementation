@@ -7,7 +7,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # جدول کاربران
+    # جدول کاربران (اضافه شدن فیلدهای is_online و needs_kick)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,10 +18,14 @@ def init_db():
             used_bytes INTEGER DEFAULT 0,
             download_bytes INTEGER DEFAULT 0,
             upload_bytes INTEGER DEFAULT 0,
-            speed_limit_kbps INTEGER DEFAULT 512
+            speed_limit_kbps INTEGER DEFAULT 512,
+            is_online INTEGER DEFAULT 0,
+            needs_kick INTEGER DEFAULT 0
         )
     ''')
     
+    # بررسی و اضافه کردن ستون‌های جدید در صورت وجود دیتابیس قدیم
+
     # جدول لاگ‌های ترافیک
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS traffic_logs (
@@ -149,10 +153,48 @@ def check_user_quota(username):
 def set_user_status(username, is_active=1):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # اصلاح جایگاه پارامترها در UPDATE
     cursor.execute("UPDATE users SET is_active = ? WHERE username = ?", (is_active, username))
     conn.commit()
     conn.close()     
+
+# ==================== ONLINE & KICK FUNCTIONS ====================
+
+def set_user_online_status(username, is_online):
+    """ثبت وضعیت آنلاین یا آفلاین کاربر در دیتابیس"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET is_online = ?, needs_kick = 0 WHERE username = ?", 
+        (1 if is_online else 0, username)
+    )
+    conn.commit()
+    conn.close()
+
+def get_online_users():
+    """دریافت لیست کاربران آنلاین برای پنل وب"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT username, upload_bytes, download_bytes FROM users WHERE is_online = 1")
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"username": r[0], "upload": r[1], "download": r[2]} for r in rows]
+
+def mark_user_for_kick(username):
+    """ثبت درخواست قطع اتصال (Kick) از پنل وب"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET needs_kick = 1 WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+
+def check_user_needs_kick(username):
+    """بررسی دستور Kick توسط هسته سرور VPN"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT needs_kick FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+    return True if row and row[0] == 1 else False
 
 # ==================== FIREWALL FUNCTIONS ====================
 

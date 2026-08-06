@@ -144,6 +144,22 @@ def delete_firewall_rule(rule_id):
     flash('قانون مورد نظر با موفقیت حذف شد.', 'info')
     return redirect(url_for('firewall_page'))
 
+
+
+
+@app.route('/active-clients')
+def active_clients_page():
+    # دریافت لیست کاربران آنلاین از دیتابیس
+    online_users = database.get_online_users()
+    return render_template('active_clients.html', clients=online_users, active_page='active_clients')
+
+@app.route('/kick/<username>')
+def kick_user(username):
+    # علامت‌گذاری کاربر در دیتابیس برای کیک شدن توسط سرور
+    database.mark_user_for_kick(username)
+    flash(f'دستور قطع اتصال (Kick) برای کاربر {username} صادر شد.', 'warning')
+    return redirect(url_for('active_clients_page'))
+
 # ---------------------------------------------------------
 # اجرای پروسس فلاسک
 # ---------------------------------------------------------

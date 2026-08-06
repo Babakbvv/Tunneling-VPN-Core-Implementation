@@ -170,18 +170,25 @@ def tun_to_clients(tun_fd):
 
 
 def kick_user_by_username(username):
-    """قطع اتصال اجباری کاربر (Client Disconnection) از طریق پنل وب"""
     with clients_lock:
         vips_to_remove = []
         for vip, info in active_clients.items():
-            if info["username"] == username:
-                try:
-                    info["sock"].close()
-                except Exception:
-                    pass
+            if info.get("username") == username:
+                sock = info.get("sock")
+                if sock:
+                    try:
+                        # ارسال پیام بسته شدن به کلاینت
+                        send_msg(sock, MSG_AUTH_FAIL, b"You have been kicked by Admin.")
+                        sock.shutdown(socket.SHUT_RDWR)
+                        sock.close()
+                    except Exception:
+                        pass
                 vips_to_remove.append(vip)
+        
         for vip in vips_to_remove:
-            del active_clients[vip]
+            if vip in active_clients:
+                del active_clients[vip]
+                
     print(f"[!] Forcefully kicked user '{username}' from Admin Panel.")
 
 
@@ -200,7 +207,7 @@ def handle_client(client_sock, client_addr, tun_fd):
             
         decrypted_auth = cipher.decrypt(payload).decode('utf-8')
         username, password = decrypted_auth.split(":", 1)
-        
+
         # ۲. اعتبارسنجی در دیتابیس (AAA)
         is_valid, reason = database.authenticate_user(username, password)
         if not is_valid:
@@ -210,6 +217,10 @@ def handle_client(client_sock, client_addr, tun_fd):
             return
             
         print(f"[+] User '{username}' authenticated successfully!")
+        authenticated_user = username
+
+        # 🟢 ست کردن وضعیت آنلاین بودن کاربر در دیتابیس (محل درست)
+        database.set_user_online_status(authenticated_user, True)
         
         # اختصاص آدرس آی‌پی مجازی ثابت/پویا به کلاینت (مثلاً 10.8.0.2)
         assigned_vip_str = "10.8.0.2" 
@@ -227,7 +238,6 @@ def handle_client(client_sock, client_addr, tun_fd):
 
         # ارسال تایید ورود به همراه آی‌پی مجازی اختصاص یافته به کلاینت
         send_msg(client_sock, MSG_AUTH_OK, assigned_vip_str.encode('utf-8'))
-        authenticated_user = username
 
         # دریافت محدودیت سرعت اختصاصی این کاربر از دیتابیس
         user_max_bytes_per_sec = database.get_user_speed_limit(authenticated_user)
@@ -241,13 +251,19 @@ def handle_client(client_sock, client_addr, tun_fd):
                 send_msg(client_sock, MSG_AUTH_FAIL, status_msg.encode('utf-8'))
                 break
 
+            # بررسی دستور قطع اتصال اجباری (Kick) از سمت admin_panel
+            if database.check_user_needs_kick(authenticated_user):
+                print(f"[!] Kicking user '{authenticated_user}' requested by Admin Panel.")
+                database.set_user_online_status(authenticated_user ,False)
+                send_msg(client_sock, MSG_AUTH_FAIL, b"You have been kicked by Admin.")
+                break
+
             msg_type, payload = recv_msg(client_sock)
             if msg_type is None:
                 break
                 
             if msg_type == MSG_DATA and payload:
                 packet = cipher.decrypt(payload)
-              #  print(f"[DEBUG SERVER] Received packet with len {len(packet)} from client!")
                 pkt_len = len(packet)
                 if pkt_len < 20: 
                     continue
@@ -256,16 +272,7 @@ def handle_client(client_sock, client_addr, tun_fd):
                 if src_ip_bytes == b'\x00\x00\x00\x00': 
                     continue
 
-                # ثبت IP مجازی کلاینت برای مسیر بازگشتی
-                if client_virtual_ip is None:
-                    client_virtual_ip = src_ip_bytes
-                    with clients_lock:
-                        active_clients[client_virtual_ip] = client_sock
-                    print(f"[i] Registered Virtual IP {socket.inet_ntoa(client_virtual_ip)} for '{username}' ({client_addr})")
-                    print(f"[i] Active Clients Count: {len(active_clients)}")
-
-                # ثبت لاگ NAT
-
+                # ثبت لاگ NAT و فایروال
                 ihl = (packet[0] & 0xF) * 4
                 protocol = packet[9]
                 dst_ip = socket.inet_ntoa(packet[16:20])
@@ -277,8 +284,7 @@ def handle_client(client_sock, client_addr, tun_fd):
                 # بررسی مسدود بودن پکت بر اساس قوانین فایروال
                 if database.is_packet_blocked(authenticated_user, dst_ip, dst_port):
                     print(f"[🔥 FIREWALL DROPPED] User: '{authenticated_user}' -> Blocked Destination: {dst_ip}:{dst_port}")
-                    continue  # بسته Drop شد و روی کارت شبکه نوشته نمی‌شود!
-
+                    continue  # بسته Drop شد
 
                 # اعمال محدودیت سرعت اختصاصی کاربر
                 if user_max_bytes_per_sec > 0:
@@ -290,7 +296,7 @@ def handle_client(client_sock, client_addr, tun_fd):
                 database.update_usage(authenticated_user, upload_add=pkt_len)
 
                 try:
-                    Maping_Nat_log(packet, client_addr ,username)
+                    Maping_Nat_log(packet, client_addr, username)
                     os.write(tun_fd, packet)
                 except OSError:
                     pass
@@ -298,13 +304,17 @@ def handle_client(client_sock, client_addr, tun_fd):
     except Exception as e:
         print(f"[-] Error handling client {client_addr}: {e}")
     finally:
+        # پاک‌سازی از لیست کلاینت‌های فعال رم
         with clients_lock:
             if client_virtual_ip and client_virtual_ip in active_clients:
                 del active_clients[client_virtual_ip]
+                
+        if authenticated_user:
+            database.set_user_online_status(authenticated_user, False)
+
         print(f"[-] Client disconnected: {client_addr} (User: {authenticated_user})")
         print(f"[i] Active Clients Count: {len(active_clients)}")
         client_sock.close()
-
 
 
 def main():
